@@ -6,6 +6,7 @@ import { useAccount } from 'wagmi';
 import ScoreboardCard from "@/components/ScoreboardCard";
 import WalletConnect from "@/components/WalletConnect";
 import BettingInterface from "@/components/BettingInterface";
+import BetHistory from "@/components/BetHistory";
 
 const Index = () => {
   const { isConnected } = useAccount();
@@ -135,6 +136,18 @@ const Index = () => {
           </div>
         </div>
       </section>
+
+      {/* Bet History Section */}
+      {isConnected && (
+        <section className="py-16 px-4">
+          <div className="container mx-auto">
+            <h2 className="text-3xl font-bold text-center mb-12 scoreboard-text text-glow">
+              Your Bet History
+            </h2>
+            <BetHistory />
+          </div>
+        </section>
+      )}
     </div>
   );
 };

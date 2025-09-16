@@ -1,12 +1,14 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X, Lock, TrendingUp, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
+import { STADIUM_SECRET_BETS_ABI, getContractAddress, BetType } from '@/lib/contracts';
+import { prepareEncryptedBetData } from '@/lib/fhe';
 
 interface Match {
   id: number;
@@ -33,6 +35,7 @@ const BettingInterface = ({ match, onClose }: BettingInterfaceProps) => {
   const [betAmount, setBetAmount] = useState("");
   const { toast } = useToast();
   const { address } = useAccount();
+  const chainId = useChainId();
   
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
@@ -44,29 +47,40 @@ const BettingInterface = ({ match, onClose }: BettingInterfaceProps) => {
 
     try {
       // Convert bet type to contract enum
-      const betType = selectedBet === "home" ? 0 : selectedBet === "draw" ? 1 : 2;
+      const betType = selectedBet === "home" ? BetType.HOME_WIN : 
+                     selectedBet === "draw" ? BetType.DRAW : BetType.AWAY_WIN;
       
-      // For now, we'll simulate the contract call since we don't have the actual contract deployed
-      // In a real implementation, you would call the actual contract:
-      // writeContract({
-      //   address: '0x...', // Contract address
-      //   abi: StadiumSecretBetsABI,
-      //   functionName: 'placeBet',
-      //   args: [match.id, betType, encryptedAmount, proof],
-      //   value: parseEther(betAmount),
-      // });
-      
-      // Simulate contract call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      // Prepare encrypted bet data
+      const encryptedBetData = await prepareEncryptedBetData(
+        match.id,
+        betType,
+        parseFloat(betAmount)
+      );
+
+      // Get contract address for current network
+      const contractAddress = getContractAddress(chainId);
+
+      // Call the smart contract with encrypted data
+      writeContract({
+        address: contractAddress,
+        abi: STADIUM_SECRET_BETS_ABI,
+        functionName: 'placeBet',
+        args: [
+          BigInt(match.id),
+          betType,
+          encryptedBetData.encryptedAmount.data,
+          encryptedBetData.encryptedAmount.proof
+        ],
+        value: parseEther(betAmount),
+      });
+
       toast({
-        title: "Encrypted Bet Placed",
-        description: `Your ${selectedBet} bet of $${betAmount} has been encrypted and secured.`,
+        title: "Encrypted Bet Submitted",
+        description: `Your ${selectedBet} bet of $${betAmount} is being encrypted and submitted to the blockchain.`,
       });
       
-      setSelectedBet(null);
-      setBetAmount("");
     } catch (err) {
+      console.error('Error placing bet:', err);
       toast({
         title: "Error",
         description: "Failed to place bet. Please try again.",
@@ -74,6 +88,29 @@ const BettingInterface = ({ match, onClose }: BettingInterfaceProps) => {
       });
     }
   };
+
+  // Handle successful transaction
+  React.useEffect(() => {
+    if (isConfirmed && hash) {
+      toast({
+        title: "Bet Successfully Placed",
+        description: `Your encrypted bet has been confirmed on the blockchain. Transaction: ${hash.slice(0, 10)}...`,
+      });
+      setSelectedBet(null);
+      setBetAmount("");
+    }
+  }, [isConfirmed, hash, toast]);
+
+  // Handle transaction error
+  React.useEffect(() => {
+    if (error) {
+      toast({
+        title: "Transaction Failed",
+        description: error.message || "Failed to place bet. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [error, toast]);
 
   const getBetOptions = () => [
     { type: "home" as const, label: match.homeTeam, odds: match.odds.home },
